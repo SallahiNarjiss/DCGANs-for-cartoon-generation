@@ -36,8 +36,7 @@ def generator(z, output_channel_dim, training):
         trans_conv4 = tf.layers.conv2d_transpose(inputs=trans_conv3_out,filters=64,kernel_size=[5,5],strides=[2,2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="trans_conv4")
         batch_trans_conv4 = tf.layers.batch_normalization(inputs = trans_conv4,training=training,epsilon=EPSILON,name="batch_trans_conv4")
         trans_conv4_out = tf.nn.leaky_relu(batch_trans_conv4,name="trans_conv4_out")
-        logits = tf.layers.conv2d_transpose(inputs=trans_conv4_out,
-filters=3,kernel_size=[5,5],strides=[1,1],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="logits")
+        logits = tf.layers.conv2d_transpose(inputs=trans_conv4_out,filters=3,kernel_size=[5,5],strides=[1,1],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="logits")
         out = tf.tanh(logits, name="out")
         return out
     
