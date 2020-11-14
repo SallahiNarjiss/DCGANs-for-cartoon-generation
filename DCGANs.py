@@ -182,8 +182,7 @@ def train(get_batches, data_shape, checkpoint_to_load=None):
 
             summarize_epoch(epoch, time.time()-start_time, sess, d_losses, g_losses, input_z, data_shape)
             
-            
-# Paths
+
 INPUT_DATA_DIR = ""
 OUTPUT_DIR = './{date:%Y-%m-%d_%H:%M:%S}/'.format(date=datetime.datetime.now())
 if not os.path.exists(OUTPUT_DIR):
