@@ -1,200 +1,145 @@
-import os
-import time
-import tensorflow as tf
-import numpy as np
-import matplotlib.pyplot as plt
-from glob import glob
-import datetime
-import random
-from PIL import Image
+# Deep Convolutional GANs
 
-IMAGE_SIZE = 128
-NOISE_SIZE = 100
-LR_D = 0.00004
-LR_G = 0.0004
-BATCH_SIZE = 64
-EPOCHS = 50
-BETA1 = 0.5
-WEIGHT_INIT_STDDEV = 0.02
-EPSILON = 0.00005
-SAMPLES_TO_SHOW = 5
+# Importing the libraries
+from __future__ import print_function
+import torch
+import torch.nn as nn
+import torch.nn.parallel
+import torch.optim as optim
+import torch.utils.data
+import torchvision.datasets as dset
+import torchvision.transforms as transforms
+import torchvision.utils as vutils
+from torch.autograd import Variable
 
-def generator(z, output_channel_dim, training):
-    with tf.variable_scope("generator", reuse= not training):
-        fully_connected = tf.layers.dense(z, 8*8*1024)
-        fully_connected = tf.reshape(fully_connected, (-1, 8, 8, 1024))
-        fully_connected = tf.nn.leaky_relu(fully_connected)
-        trans_conv1 = tf.layers.conv2d_transpose(inputs=fully_connected,filters=512,kernel_size=[5,5],strides=[2,2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="trans_conv1")
-        batch_trans_conv1 = tf.layers.batch_normalization(inputs = trans_conv1,training=training,epsilon=EPSILON,name="batch_trans_conv1")
-        trans_conv1_out = tf.nn.leaky_relu(batch_trans_conv1,name="trans_conv1_out")
-        trans_conv2 = tf.layers.conv2d_transpose(inputs=trans_conv1_out,filters=256,kernel_size=[5,5],strides=[2,2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="trans_conv2")
-        batch_trans_conv2 = tf.layers.batch_normalization(inputs = trans_conv2,training=training,epsilon=EPSILON,name="batch_trans_conv2")
-        trans_conv2_out = tf.nn.leaky_relu(batch_trans_conv2,name="trans_conv2_out")
-        trans_conv3 = tf.layers.conv2d_transpose(inputs=trans_conv2_out,filters=128,kernel_size=[5,5],strides=[2,2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="trans_conv3")
-        batch_trans_conv3 = tf.layers.batch_normalization(inputs = trans_conv3,training=training,epsilon=EPSILON,name="batch_trans_conv3")
-        trans_conv3_out = tf.nn.leaky_relu(batch_trans_conv3,name="trans_conv3_out")
-        trans_conv4 = tf.layers.conv2d_transpose(inputs=trans_conv3_out,filters=64,kernel_size=[5,5],strides=[2,2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="trans_conv4")
-        batch_trans_conv4 = tf.layers.batch_normalization(inputs = trans_conv4,training=training,epsilon=EPSILON,name="batch_trans_conv4")
-        trans_conv4_out = tf.nn.leaky_relu(batch_trans_conv4,name="trans_conv4_out")
-        logits = tf.layers.conv2d_transpose(inputs=trans_conv4_out,filters=3,kernel_size=[5,5],strides=[1,1],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name="logits")
-        out = tf.tanh(logits, name="out")
-        return out
-    
-def discriminator(x, reuse):
-    with tf.variable_scope("discriminator", reuse=reuse): 
-        conv1 = tf.layers.conv2d(inputs=x,filters=64,kernel_size=[5,5],strides=[2,2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name='conv1')
-        batch_norm1 = tf.layers.batch_normalization(conv1,training=True,epsilon=EPSILON,name='batch_norm1')
-        conv1_out = tf.nn.leaky_relu(batch_norm1,name="conv1_out")
-        conv2 = tf.layers.conv2d(inputs=conv1_out,filters=128,kernel_size=[5, 5],strides=[2, 2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name='conv2')
-        batch_norm2 = tf.layers.batch_normalization(conv2,training=True,epsilon=EPSILON,name='batch_norm2')
-        conv2_out = tf.nn.leaky_relu(batch_norm2,name="conv2_out")
-        conv3 = tf.layers.conv2d(inputs=conv2_out,filters=256,kernel_size=[5, 5],strides=[2, 2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name='conv3')
-        batch_norm3 = tf.layers.batch_normalization(conv3,training=True,epsilon=EPSILON,name='batch_norm3')
-        conv3_out = tf.nn.leaky_relu(batch_norm3,name="conv3_out")
-        conv4 = tf.layers.conv2d(inputs=conv3_out,filters=512,kernel_size=[5, 5],strides=[1, 1],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name='conv4')
-        batch_norm4 = tf.layers.batch_normalization(conv4,training=True,epsilon=EPSILON,name='batch_norm4')
-        conv4_out = tf.nn.leaky_relu(batch_norm4,name="conv4_out")
-        conv5 = tf.layers.conv2d(inputs=conv4_out,filters=1024,kernel_size=[5, 5],strides=[2, 2],padding="SAME",kernel_initializer=tf.truncated_normal_initializer(stddev=WEIGHT_INIT_STDDEV),name='conv5')
-        batch_norm5 = tf.layers.batch_normalization(conv5,training=True,epsilon=EPSILON,name='batch_norm5')
-        conv5_out = tf.nn.leaky_relu(batch_norm5,name="conv5_out")
-        flatten = tf.reshape(conv5_out, (-1, 8*8*1024))
-        logits = tf.layers.dense(inputs=flatten,units=1,activation=None)
-        out = tf.sigmoid(logits)
-        return out, logits
+# Setting some hyperparameters
+batchSize = 64 # We set the size of the batch.
+imageSize = 64 # We set the size of the generated images (64x64).
 
-    
-    def model_loss(input_real, input_z, output_channel_dim):
-    g_model = generator(input_z, output_channel_dim, True)
+# Creating the transformations
+transform = transforms.Compose([transforms.Scale(imageSize), transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),])
+ # up We create a list of transformations (scaling, tensor conversion, normalization) to apply to the input images.
 
-    noisy_input_real = input_real + tf.random_normal(shape=tf.shape(input_real),
-                                                     mean=0.0,
-                                                     stddev=random.uniform(0.0, 0.1),
-                                                     dtype=tf.float32)
-    
-    d_model_real, d_logits_real = discriminator(noisy_input_real, reuse=False)
-    d_model_fake, d_logits_fake = discriminator(g_model, reuse=True)
-    
-    d_loss_real = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=d_logits_real,
-                                                                         labels=tf.ones_like(d_model_real)*random.uniform(0.9, 1.0)))
-    d_loss_fake = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=d_logits_fake,
-                                                                         labels=tf.zeros_like(d_model_fake)))
-    d_loss = tf.reduce_mean(0.5 * (d_loss_real + d_loss_fake))
-    g_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(logits=d_logits_fake,
-                                                                    labels=tf.ones_like(d_model_fake)))
-    return d_loss, g_loss
+# Loading the dataset
+dataset = dset.CIFAR10(root = './data', download = True, transform = transform) # We download the training set in the ./data folder and we apply the previous transformations on each image.
+dataloader = torch.utils.data.DataLoader(dataset, batch_size = batchSize, shuffle = True, num_workers = 2) # We use dataLoader to get the images of the training set batch by batch.
 
+# Defining the weights_init function that takes as input a neural network m and that will initialize all its weights.
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        m.weight.data.normal_(0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
 
-def model_optimizers(d_loss, g_loss):
-    t_vars = tf.trainable_variables()
-    g_vars = [var for var in t_vars if var.name.startswith("generator")]
-    d_vars = [var for var in t_vars if var.name.startswith("discriminator")]
-    
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    gen_updates = [op for op in update_ops if op.name.startswith('generator')]
-    
-    with tf.control_dependencies(gen_updates):
-        d_train_opt = tf.train.AdamOptimizer(learning_rate=LR_D, beta1=BETA1).minimize(d_loss, var_list=d_vars)
-        g_train_opt = tf.train.AdamOptimizer(learning_rate=LR_G, beta1=BETA1).minimize(g_loss, var_list=g_vars)  
-    return d_train_opt, g_train_opt
+# Defining the generator
 
-def model_inputs(real_dim, z_dim):
-    inputs_real = tf.placeholder(tf.float32, (None, *real_dim), name='inputs_real')
-    inputs_z = tf.placeholder(tf.float32, (None, z_dim), name="input_z")
-    learning_rate_G = tf.placeholder(tf.float32, name="lr_g")
-    learning_rate_D = tf.placeholder(tf.float32, name="lr_d")
-    return inputs_real, inputs_z, learning_rate_G, learning_rate_D
+class G(nn.Module): # We introduce a class to define the generator.
 
+    def __init__(self): # We introduce the __init__() function that will define the architecture of the generator.
+        super(G, self).__init__() # We inherit from the nn.Module tools.
+        self.main = nn.Sequential( # We create a meta module of a neural network that will contain a sequence of modules (convolutions, full connections, etc.).
+            nn.ConvTranspose2d(100, 512, 4, 1, 0, bias = False), # We start with an inversed convolution.
+            nn.BatchNorm2d(512), # We normalize all the features along the dimension of the batch.
+            nn.ReLU(True), # We apply a ReLU rectification to break the linearity.
+            nn.ConvTranspose2d(512, 256, 4, 2, 1, bias = False), # We add another inversed convolution.
+            nn.BatchNorm2d(256), # We normalize again.
+            nn.ReLU(True), # We apply another ReLU.
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias = False), # We add another inversed convolution.
+            nn.BatchNorm2d(128), # We normalize again.
+            nn.ReLU(True), # We apply another ReLU.
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, bias = False), # We add another inversed convolution.
+            nn.BatchNorm2d(64), # We normalize again.
+            nn.ReLU(True), # We apply another ReLU.
+            nn.ConvTranspose2d(64, 3, 4, 2, 1, bias = False), # We add another inversed convolution.
+            nn.Tanh() # We apply a Tanh rectification to break the linearity and stay between -1 and +1.
+        )
 
-def show_samples(sample_images, name, epoch):
-    figure, axes = plt.subplots(1, len(sample_images), figsize = (IMAGE_SIZE, IMAGE_SIZE))
-    for index, axis in enumerate(axes):
-        axis.axis('off')
-        image_array = sample_images[index]
-        axis.imshow(image_array)
-        image = Image.fromarray(image_array)
-        image.save(name+"_"+str(epoch)+"_"+str(index)+".png") 
-    plt.savefig(name+"_"+str(epoch)+".png", bbox_inches='tight', pad_inches=0)
-    plt.show()
-    plt.close()
-    
-def test(sess, input_z, out_channel_dim, epoch):
-    example_z = np.random.uniform(-1, 1, size=[SAMPLES_TO_SHOW, input_z.get_shape().as_list()[-1]])
-    samples = sess.run(generator(input_z, out_channel_dim, False), feed_dict={input_z: example_z})
-    sample_images = [((sample + 1.0) * 127.5).astype(np.uint8) for sample in samples]
-    show_samples(sample_images, OUTPUT_DIR + "samples", epoch)
-    
-    
-def summarize_epoch(epoch, duration, sess, d_losses, g_losses, input_z, data_shape):
-    minibatch_size = int(data_shape[0]//BATCH_SIZE)
-    print("Epoch {}/{}".format(epoch, EPOCHS),
-          "\nDuration: {:.5f}".format(duration),
-          "\nD Loss: {:.5f}".format(np.mean(d_losses[-minibatch_size:])),
-          "\nG Loss: {:.5f}".format(np.mean(g_losses[-minibatch_size:])))
-    fig, ax = plt.subplots()
-    plt.plot(d_losses, label='Discriminator', alpha=0.6)
-    plt.plot(g_losses, label='Generator', alpha=0.6)
-    plt.title("Losses")
-    plt.legend()
-    plt.savefig(OUTPUT_DIR + "losses_" + str(epoch) + ".png")
-    plt.show()
-    plt.close()
-    test(sess, input_z, data_shape[3], epoch)
-    
+    def forward(self, input): # We define the forward function that takes as argument an input that will be fed to the neural network, and that will return the output containing the generated images.
+        output = self.main(input) # We forward propagate the signal through the whole neural network of the generator defined by self.main.
+        return output # We return the output containing the generated images.
 
-def get_batches(data):
-    batches = []
-    for i in range(int(data.shape[0]//BATCH_SIZE)):
-        batch = data[i * BATCH_SIZE:(i + 1) * BATCH_SIZE]
-        augmented_images = []
-        for img in batch:
-            image = Image.fromarray(img)
-            if random.choice([True, False]):
-                image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            augmented_images.append(np.asarray(image))
-        batch = np.asarray(augmented_images)
-        normalized_batch = (batch / 127.5) - 1.0
-        batches.append(normalized_batch)
-    return batches
+# Creating the generator
+netG = G() # We create the generator object.
+netG.apply(weights_init) # We initialize all the weights of its neural network.
 
-def train(get_batches, data_shape, checkpoint_to_load=None):
-    input_images, input_z, lr_G, lr_D = model_inputs(data_shape[1:], NOISE_SIZE)
-    d_loss, g_loss = model_loss(input_images, input_z, data_shape[3])
-    d_opt, g_opt = model_optimizers(d_loss, g_loss)
-    
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        epoch = 0
-        iteration = 0
-        d_losses = []
-        g_losses = []
+# Defining the discriminator
+
+class D(nn.Module): # We introduce a class to define the discriminator.
+
+    def __init__(self): # We introduce the __init__() function that will define the architecture of the discriminator.
+        super(D, self).__init__() # We inherit from the nn.Module tools.
+        self.main = nn.Sequential( # We create a meta module of a neural network that will contain a sequence of modules (convolutions, full connections, etc.).
+            nn.Conv2d(3, 64, 4, 2, 1, bias = False), # We start with a convolution.
+            nn.LeakyReLU(0.2, inplace = True), # We apply a LeakyReLU.
+            nn.Conv2d(64, 128, 4, 2, 1, bias = False), # We add another convolution.
+            nn.BatchNorm2d(128), # We normalize all the features along the dimension of the batch.
+            nn.LeakyReLU(0.2, inplace = True), # We apply another LeakyReLU.
+            nn.Conv2d(128, 256, 4, 2, 1, bias = False), # We add another convolution.
+            nn.BatchNorm2d(256), # We normalize again.
+            nn.LeakyReLU(0.2, inplace = True), # We apply another LeakyReLU.
+            nn.Conv2d(256, 512, 4, 2, 1, bias = False), # We add another convolution.
+            nn.BatchNorm2d(512), # We normalize again.
+            nn.LeakyReLU(0.2, inplace = True), # We apply another LeakyReLU.
+            nn.Conv2d(512, 1, 4, 1, 0, bias = False), # We add another convolution.
+            nn.Sigmoid() # We apply a Sigmoid rectification to break the linearity and stay between 0 and 1.
+        )
+
+    def forward(self, input): # We define the forward function that takes as argument an input that will be fed to the neural network, and that will return the output which will be a value between 0 and 1.
+        output = self.main(input) # We forward propagate the signal through the whole neural network of the discriminator defined by self.main.
+        return output.view(-1) # We return the output which will be a value between 0 and 1.
+
+# Creating the discriminator
+netD = D() # We create the discriminator object.
+netD.apply(weights_init) # We initialize all the weights of its neural network.
+
+# Training the DCGANs
+
+criterion = nn.BCELoss() # We create a criterion object that will measure the error between the prediction and the target.
+optimizerD = optim.Adam(netD.parameters(), lr = 0.0002, betas = (0.5, 0.999)) # We create the optimizer object of the discriminator.
+optimizerG = optim.Adam(netG.parameters(), lr = 0.0002, betas = (0.5, 0.999)) # We create the optimizer object of the generator.
+
+for epoch in range(25): # We iterate over 25 epochs.
+
+    for i, data in enumerate(dataloader, 0): # We iterate over the images of the dataset.
         
-        for epoch in range(EPOCHS):        
-            epoch += 1
-            start_time = time.time()
+        # 1st Step: Updating the weights of the neural network of the discriminator
 
-            for batch_images in get_batches:
-                iteration += 1
-                batch_z = np.random.uniform(-1, 1, size=(BATCH_SIZE, NOISE_SIZE))
-                _ = sess.run(d_opt, feed_dict={input_images: batch_images, input_z: batch_z, lr_D: LR_D})
-                _ = sess.run(g_opt, feed_dict={input_images: batch_images, input_z: batch_z, lr_G: LR_G})
-                d_losses.append(d_loss.eval({input_z: batch_z, input_images: batch_images}))
-                g_losses.append(g_loss.eval({input_z: batch_z}))
+        netD.zero_grad() # We initialize to 0 the gradients of the discriminator with respect to the weights.
+        
+        # Training the discriminator with a real image of the dataset
+        real, _ = data # We get a real image of the dataset which will be used to train the discriminator.
+        input = Variable(real) # We wrap it in a variable.
+        target = Variable(torch.ones(input.size()[0])) # We get the target.
+        output = netD(input) # We forward propagate this real image into the neural network of the discriminator to get the prediction (a value between 0 and 1).
+        errD_real = criterion(output, target) # We compute the loss between the predictions (output) and the target (equal to 1).
+        
+        # Training the discriminator with a fake image generated by the generator
+        noise = Variable(torch.randn(input.size()[0], 100, 1, 1)) # We make a random input vector (noise) of the generator.
+        fake = netG(noise) # We forward propagate this random input vector into the neural network of the generator to get some fake generated images.
+        target = Variable(torch.zeros(input.size()[0])) # We get the target.
+        output = netD(fake.detach()) # We forward propagate the fake generated images into the neural network of the discriminator to get the prediction (a value between 0 and 1).
+        errD_fake = criterion(output, target) # We compute the loss between the prediction (output) and the target (equal to 0).
 
-            summarize_epoch(epoch, time.time()-start_time, sess, d_losses, g_losses, input_z, data_shape)
-            
+        # Backpropagating the total error
+        errD = errD_real + errD_fake # We compute the total error of the discriminator.
+        errD.backward() # We backpropagate the loss error by computing the gradients of the total error with respect to the weights of the discriminator.
+        optimizerD.step() # We apply the optimizer to update the weights according to how much they are responsible for the loss error of the discriminator.
 
-INPUT_DATA_DIR = ""
-OUTPUT_DIR = './{date:%Y-%m-%d_%H:%M:%S}/'.format(date=datetime.datetime.now())
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
+        # 2nd Step: Updating the weights of the neural network of the generator
 
-input_images = np.asarray([np.asarray(Image.open(file).resize((IMAGE_SIZE, IMAGE_SIZE))) for file in glob(INPUT_DATA_DIR + '*')])
-print ("Input: " + str(input_images.shape))
+        netG.zero_grad() # We initialize to 0 the gradients of the generator with respect to the weights.
+        target = Variable(torch.ones(input.size()[0])) # We get the target.
+        output = netD(fake) # We forward propagate the fake generated images into the neural network of the discriminator to get the prediction (a value between 0 and 1).
+        errG = criterion(output, target) # We compute the loss between the prediction (output between 0 and 1) and the target (equal to 1).
+        errG.backward() # We backpropagate the loss error by computing the gradients of the total error with respect to the weights of the generator.
+        optimizerG.step() # We apply the optimizer to update the weights according to how much they are responsible for the loss error of the generator.
+        
+        # 3rd Step: Printing the losses and saving the real images and the generated images of the minibatch every 100 steps
 
-np.random.shuffle(input_images)
-
-sample_images = random.sample(list(input_images), SAMPLES_TO_SHOW)
-show_samples(sample_images, OUTPUT_DIR + "inputs", 0)
-
-with tf.Graph().as_default():
-    train(get_batches(input_images), input_images.shape)
+        print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f' % (epoch, 25, i, len(dataloader), errD.data[0], errG.data[0])) # We print les losses of the discriminator (Loss_D) and the generator (Loss_G).
+        if i % 100 == 0: # Every 100 steps:
+            vutils.save_image(real, '%s/real_samples.png' % "./results", normalize = True) # We save the real images of the minibatch.
+            fake = netG(noise) # We get our fake generated images.
+            vutils.save_image(fake.data, '%s/fake_samples_epoch_%03d.png' % ("./results", epoch), normalize = True) # We also save the fake generated images of the minibatch.
