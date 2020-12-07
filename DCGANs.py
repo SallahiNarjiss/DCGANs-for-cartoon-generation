@@ -1,50 +1,40 @@
 import tensorflow as tf
+from tensorflow.keras.layers import LeakyReLU
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import UpSampling2D, Conv2D
+from tensorflow.keras.models import Sequential, Model, load_model
 from tensorflow.keras.layers import Input, Reshape, Dropout, Dense 
 from tensorflow.keras.layers import Flatten, BatchNormalization
 from tensorflow.keras.layers import Activation, ZeroPadding2D
-from tensorflow.keras.layers import LeakyReLU
-from tensorflow.keras.layers import UpSampling2D, Conv2D
-from tensorflow.keras.models import Sequential, Model, load_model
-from tensorflow.keras.optimizers import Adam
+import os 
+import time
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-import os 
-import time
 import matplotlib.pyplot as plt
 
-# Generation resolution - Must be square 
-# Training data is also scaled to this.
-# Note GENERATE_RES 4 or higher  
-# will blow Google CoLab's memory and have not
-# been tested extensivly.
-GENERATE_RES = 3 # Generation resolution factor 
-# (1=32, 2=64, 3=96, 4=128, etc.)
-GENERATE_SQUARE = 32 * GENERATE_RES # rows/cols (should be square)
+
+GENERATE_RES = 3 
+GENERATE_SQUARE = 32 * GENERATE_RES 
 IMAGE_CHANNELS = 3
 
-# Preview image 
-PREVIEW_ROWS = 4
+
+PREVIEW_ROWS = 8
 PREVIEW_COLS = 7
 PREVIEW_MARGIN = 16
 
-# Size vector to generate images from
-SEED_SIZE = 100
+
+SEED_SIZE = 110
 
 # Configuration
 DATA_PATH = '/content/drive/My Drive/projects/faces'
-EPOCHS = 50
-BATCH_SIZE = 32
-BUFFER_SIZE = 60000
+EPOCHS = 58
+BATCH_SIZE = 20
+BUFFER_SIZE = 6000
 
-print(f"Will generate {GENERATE_SQUARE}px square images.")
 
-# Image set has 11,682 images.  Can take over an hour 
-# for initial preprocessing.
-# Because of this time needed, save a Numpy preprocessed file.
-# Note, that file is large enough to cause problems for 
-# sume verisons of Pickle,
-# so Numpy binary files are used.
+
+
 training_binary_path = os.path.join(DATA_PATH,
         f'training_data_{GENERATE_SQUARE}_{GENERATE_SQUARE}.npy')
 
@@ -80,21 +70,16 @@ train_dataset = tf.data.Dataset.from_tensor_slices(training_data) \
     .shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
 def build_generator(seed_size, channels):
     model = Sequential()
-
     model.add(Dense(4*4*256,activation="relu",input_dim=seed_size))
     model.add(Reshape((4,4,256)))
-
     model.add(UpSampling2D())
     model.add(Conv2D(256,kernel_size=3,padding="same"))
     model.add(BatchNormalization(momentum=0.8))
     model.add(Activation("relu"))
-
     model.add(UpSampling2D())
     model.add(Conv2D(256,kernel_size=3,padding="same"))
     model.add(BatchNormalization(momentum=0.8))
     model.add(Activation("relu"))
-   
-    # Output resolution, additional upsampling
     model.add(UpSampling2D())
     model.add(Conv2D(128,kernel_size=3,padding="same"))
     model.add(BatchNormalization(momentum=0.8))
@@ -105,37 +90,31 @@ def build_generator(seed_size, channels):
       model.add(Conv2D(128,kernel_size=3,padding="same"))
       model.add(BatchNormalization(momentum=0.8))
       model.add(Activation("relu"))
-
-    # Final CNN layer
+        
     model.add(Conv2D(channels,kernel_size=3,padding="same"))
     model.add(Activation("tanh"))
 
     return model
 
-
-def build_discriminator(image_shape):
+def discriminator(image_shape):
     model = Sequential()
 
     model.add(Conv2D(32, kernel_size=3, strides=2, input_shape=image_shape, 
                      padding="same"))
     model.add(LeakyReLU(alpha=0.2))
-
     model.add(Dropout(0.25))
     model.add(Conv2D(64, kernel_size=3, strides=2, padding="same"))
     model.add(ZeroPadding2D(padding=((0,1),(0,1))))
     model.add(BatchNormalization(momentum=0.8))
     model.add(LeakyReLU(alpha=0.2))
-
-    model.add(Dropout(0.25))
+    model.add(Dropout(0.3))
     model.add(Conv2D(128, kernel_size=3, strides=2, padding="same"))
     model.add(BatchNormalization(momentum=0.8))
     model.add(LeakyReLU(alpha=0.2))
-
-    model.add(Dropout(0.25))
+    model.add(Dropout(0.3))
     model.add(Conv2D(256, kernel_size=3, strides=1, padding="same"))
     model.add(BatchNormalization(momentum=0.8))
     model.add(LeakyReLU(alpha=0.2))
-
     model.add(Dropout(0.25))
     model.add(Conv2D(512, kernel_size=3, strides=1, padding="same"))
     model.add(BatchNormalization(momentum=0.8))
@@ -144,10 +123,9 @@ def build_discriminator(image_shape):
     model.add(Dropout(0.25))
     model.add(Flatten())
     model.add(Dense(1, activation='sigmoid'))
-
     return model
    
- def save_images(cnt,noise):
+ def images(cnt,noise):
   image_array = np.full(( 
       PREVIEW_MARGIN + (PREVIEW_ROWS * (GENERATE_SQUARE+PREVIEW_MARGIN)), 
       PREVIEW_MARGIN + (PREVIEW_COLS * (GENERATE_SQUARE+PREVIEW_MARGIN)), 3), 
@@ -164,14 +142,9 @@ def build_discriminator(image_shape):
         c = col * (GENERATE_SQUARE+16) + PREVIEW_MARGIN
         image_array[r:r+GENERATE_SQUARE,c:c+GENERATE_SQUARE] \
             = generated_images[image_count] * 255
-        image_count += 1
-
-          
+        image_count += 1          
   output_path = os.path.join(DATA_PATH,'output')
-  if not os.path.exists(output_path):
-    os.makedirs(output_path)
-  
-  filename = os.path.join(output_path,f"train-{cnt}.png")
+
   im = Image.fromarray(image_array)
   im.save(filename)
   
@@ -182,15 +155,11 @@ generated_image = generator(noise, training=False)
 
 plt.imshow(generated_image[0, :, :, 0])
 
-
 image_shape = (GENERATE_SQUARE,GENERATE_SQUARE,IMAGE_CHANNELS)
 
 discriminator = build_discriminator(image_shape)
 decision = discriminator(generated_image)
 print (decision)
-
-
-# This method returns a helper function to compute cross entropy loss
 cross_entropy = tf.keras.losses.BinaryCrossentropy()
 
 def discriminator_loss(real_output, fake_output):
@@ -263,4 +232,4 @@ def train_step(images):
   
   train(train_dataset, EPOCHS)
   
-  generator.save(os.path.join(DATA_PATH,"face_generator.h5"))
+  generator.save(os.path.join(DATA_PATH,"cartoons_generator.h5"))
